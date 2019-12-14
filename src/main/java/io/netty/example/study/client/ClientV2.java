@@ -19,6 +19,9 @@ import io.netty.handler.logging.LoggingHandler;
 
 import java.util.concurrent.ExecutionException;
 
+/**
+ * 异步接受返回结果
+ */
 public class ClientV2 {
 
     public static void main(String[] args) throws InterruptedException, ExecutionException {

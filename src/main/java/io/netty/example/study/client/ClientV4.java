@@ -7,6 +7,8 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.example.study.client.codec.*;
+import io.netty.example.study.client.codec.dispacher.*;
+import io.netty.example.study.common.OperationResult;
 import io.netty.example.study.common.RequestMessage;
 import io.netty.example.study.common.order.OrderOperation;
 import io.netty.example.study.util.IdUtil;
@@ -16,9 +18,9 @@ import io.netty.handler.logging.LoggingHandler;
 import java.util.concurrent.ExecutionException;
 
 /**
- * 封装 RequestMessage
+ * 心跳检测机制：利用空闲检测 ClientIdleCheckHandler 和 心跳机制 KeepaliveHandler 保持长连接
  */
-public class ClientV1 {
+public class ClientV4 {
 
     public static void main(String[] args) throws InterruptedException, ExecutionException {
         Bootstrap bootstrap = new Bootstrap();
@@ -26,16 +28,27 @@ public class ClientV1 {
 
         bootstrap.group(new NioEventLoopGroup());
 
+        RequestPendingCenter requestPendingCenter = new RequestPendingCenter();
+
+        KeepaliveHandler keepaliveHandler = new KeepaliveHandler();
+
         bootstrap.handler(new ChannelInitializer<NioSocketChannel>() {
             @Override
             protected void initChannel(NioSocketChannel ch) throws Exception {
                 ChannelPipeline pipeline = ch.pipeline();
+
+                pipeline.addLast(new ClientIdleCheckHandler());
+
                 pipeline.addLast(new OrderFrameDecoder());
                 pipeline.addLast(new OrderFrameEncoder());
                 pipeline.addLast(new OrderProtocolEncoder());
                 pipeline.addLast(new OrderProtocolDecoder());
 
+                pipeline.addLast(new ResponseDispatcherHandler(requestPendingCenter));
+
                 pipeline.addLast(new OperationToRequestMessageEncoder());
+
+                pipeline.addLast(keepaliveHandler);
 
                 pipeline.addLast(new LoggingHandler(LogLevel.INFO));
             }
@@ -45,9 +58,16 @@ public class ClientV1 {
 
         channelFuture.sync();
 
-        OrderOperation orderOperation = new OrderOperation(1001, "tudou");
+        long streamId = IdUtil.nextId();
+        RequestMessage requestMessage = new RequestMessage(streamId, new OrderOperation(1001, "tudou"));
 
-        channelFuture.channel().writeAndFlush(orderOperation);
+        OperationResultFuture future = new OperationResultFuture();
+        requestPendingCenter.add(streamId, future);
+
+        channelFuture.channel().writeAndFlush(requestMessage);
+
+        OperationResult operationResult = future.get();
+        System.out.println(operationResult);
 
         channelFuture.channel().closeFuture().sync();
 
