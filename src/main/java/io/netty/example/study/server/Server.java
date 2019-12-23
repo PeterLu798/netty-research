@@ -15,15 +15,20 @@ import io.netty.example.study.server.codec.handler.*;
 import io.netty.handler.flush.FlushConsolidationHandler;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.UnorderedThreadPoolEventExecutor;
 
+import javax.net.ssl.SSLException;
+import java.security.cert.CertificateException;
 import java.util.concurrent.ExecutionException;
 
 public class Server {
 
-    public static void main(String[] args) throws InterruptedException, ExecutionException {
+    public static void main(String[] args) throws InterruptedException, ExecutionException, CertificateException, SSLException {
         /**
          * 专门用来处理业务handler的线程池
          */
@@ -44,6 +49,12 @@ public class Server {
         IpFilterHandler ipFilterHandler = new IpFilterHandler();
         //auth验证
         AuthHandler authHandler = new AuthHandler();
+        //SSL加密通信
+        //自签证书
+        SelfSignedCertificate selfSignedCertificate = new SelfSignedCertificate();
+        System.out.println(selfSignedCertificate.certificate());
+        //SSL上下文
+        SslContext sslContext = SslContextBuilder.forServer(selfSignedCertificate.certificate(), selfSignedCertificate.privateKey()).build();
 
         serverBootstrap.childHandler(new ChannelInitializer<NioSocketChannel>() {
             @Override
@@ -58,6 +69,8 @@ public class Server {
 
                 pipeline.addLast("TSHandler", globalTrafficShapingHandler);
 
+                pipeline.addLast("sslHandler", sslContext.newHandler(ch.alloc()));
+
                 pipeline.addLast("orderFrameDecoder", new OrderFrameDecoder());
                 pipeline.addLast("orderFrameEncoder", new OrderFrameEncoder());
                 pipeline.addLast("orderProtocolEncoder", new OrderProtocolEncoder());
@@ -68,7 +81,9 @@ public class Server {
                 pipeline.addLast("metricHandler", metricHandler);
 
                 pipeline.addLast(new LoggingHandler(LogLevel.INFO));
-                //开启异步延迟功能，提高吞吐量。consolidateWhenNoReadInProgress设为true表示开启异步延迟，explicitFlushAfterFlushes设为5表示5个请求flush一次
+                //开启异步延迟功能，提高吞吐量。
+                // consolidateWhenNoReadInProgress 设为true表示开启异步延迟，
+                // explicitFlushAfterFlushes设为5表示5个请求flush一次
                 pipeline.addLast("flushConsolidationHandler", new FlushConsolidationHandler(5, true));
 
                 pipeline.addLast(executors, new OrderServerProcessHandler());
